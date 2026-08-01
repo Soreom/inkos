@@ -1,0 +1,150 @@
+name: TopicDeep Linux validation supply
+
+on:
+  push:
+    branches:
+      - gpt/topicdeep-linux-supply-20260801
+
+permissions:
+  contents: write
+
+concurrency:
+  group: topicdeep-linux-supply-20260801
+  cancel-in-progress: false
+
+jobs:
+  supply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out temporary supply branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Download and verify exact Linux toolchain and native npm packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/topicdeep-linux-supply"
+          mkdir -p "$root/native" "$root/toolchain"
+
+          fetch_sri() {
+            local name="$1" url="$2" expected="$3" output="$4"
+            curl --fail --location --retry 5 --retry-all-errors --connect-timeout 20 \
+              --output "$output" "$url"
+            local actual
+            actual="sha512-$(openssl dgst -sha512 -binary "$output" | base64 -w0)"
+            test "$actual" = "$expected"
+            printf '%s\t%s\t%s\t%s\n' "$name" "$url" "$expected" "$(stat -c %s "$output")" \
+              >> "$root/NATIVE-SUPPLY.tsv"
+          }
+
+          node_url='https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz'
+          node_sha='22982235e1b71fa8850f82edd09cdae7e3f32df1764a9ec298c72d25ef2c164f'
+          curl --fail --location --retry 5 --retry-all-errors --connect-timeout 20 \
+            --output "$root/toolchain/node-v22.12.0-linux-x64.tar.xz" "$node_url"
+          printf '%s  %s\n' "$node_sha" "$root/toolchain/node-v22.12.0-linux-x64.tar.xz" | sha256sum -c -
+
+          npm_meta="$root/toolchain/npm-10.9.2-metadata.json"
+          npm view npm@10.9.2 dist.tarball dist.integrity dist.shasum --json \
+            --registry=https://registry.npmjs.org > "$npm_meta"
+          npm_url="$(node -e "const m=require(process.argv[1]); process.stdout.write(m['dist.tarball'])" "$npm_meta")"
+          npm_sri="$(node -e "const m=require(process.argv[1]); process.stdout.write(m['dist.integrity'])" "$npm_meta")"
+          fetch_sri 'npm@10.9.2' "$npm_url" "$npm_sri" "$root/toolchain/npm-10.9.2.tgz"
+
+          fetch_sri '@esbuild/linux-x64@0.28.1' \
+            'https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.1.tgz' \
+            'sha512-u/anNYF2mmVOEDwLtnQ1wOr3EZ9sTNGLWrsYGYwHWzGA3Si84IOkHXlbWTD1NB+9/1lcnweYKO54uhxZydNzfA==' \
+            "$root/native/esbuild-linux-x64-0.28.1.tgz"
+          fetch_sri '@rollup/rollup-linux-x64-gnu@4.62.2' \
+            'https://registry.npmjs.org/@rollup/rollup-linux-x64-gnu/-/rollup-linux-x64-gnu-4.62.2.tgz' \
+            'sha512-5BqxR/pshjey51iliyzTD5Xi3EN0aLmQ2lZ3lvefVV9c82BvrLo2/6OT55iifpWBufs6kdwWbuOKS841DrmK9A==' \
+            "$root/native/rollup-linux-x64-gnu-4.62.2.tgz"
+          fetch_sri '@rollup/rollup-linux-x64-musl@4.62.2' \
+            'https://registry.npmjs.org/@rollup/rollup-linux-x64-musl/-/rollup-linux-x64-musl-4.62.2.tgz' \
+            'sha512-uNN83XxQrRAh/w0/pmAfibcwyb6YWt4gP+dpnQKPVJshAloQ785ii8CT8ZCIxkGg9opVsvAlGhFitSm6D1Jjpg==' \
+            "$root/native/rollup-linux-x64-musl-4.62.2.tgz"
+          fetch_sri '@img/sharp-linux-x64@0.34.5' \
+            'https://registry.npmjs.org/@img/sharp-linux-x64/-/sharp-linux-x64-0.34.5.tgz' \
+            'sha512-MEzd8HPKxVxVenwAa+JRPwEC7QFjoPWuS5NZnBt6B3pu7EG2Ge0id1oLHZpPJdn3OQK+BQDiw9zStiHBTJQQQQ==' \
+            "$root/native/sharp-linux-x64-0.34.5.tgz"
+          fetch_sri '@img/sharp-linuxmusl-x64@0.34.5' \
+            'https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.34.5.tgz' \
+            'sha512-Jg8wNT1MUzIvhBFxViqrEhWDGzqymo3sV7z7ZsaWbZNDLXRJZoRGrjulp60YYtV4wfY8VIKcWidjojlLcWrd8Q==' \
+            "$root/native/sharp-linuxmusl-x64-0.34.5.tgz"
+          fetch_sri '@img/sharp-libvips-linux-x64@1.2.4' \
+            'https://registry.npmjs.org/@img/sharp-libvips-linux-x64/-/sharp-libvips-linux-x64-1.2.4.tgz' \
+            'sha512-tJxiiLsmHc9Ax1bz3oaOYBURTXGIRDODBqhveVHonrHJ9/+k89qbLl0bcJns+e4t4rvaNBxaEZsFtSfAdquPrw==' \
+            "$root/native/sharp-libvips-linux-x64-1.2.4.tgz"
+          fetch_sri '@img/sharp-libvips-linuxmusl-x64@1.2.4' \
+            'https://registry.npmjs.org/@img/sharp-libvips-linuxmusl-x64/-/sharp-libvips-linuxmusl-x64-1.2.4.tgz' \
+            'sha512-+LpyBk7L44ZIXwz/VYfglaX/okxezESc6UxDSoyo2Ks6Jxc4Y7sGjpgU9s4PMgqgjj1gZCylTieNamqA1MF7Dg==' \
+            "$root/native/sharp-libvips-linuxmusl-x64-1.2.4.tgz"
+
+          (
+            cd "$root"
+            find native toolchain -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+            tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+              -czf "$RUNNER_TEMP/topicdeep-linux-supply.tar.gz" \
+              NATIVE-SUPPLY.tsv SHA256SUMS native toolchain
+          )
+          sha256sum "$RUNNER_TEMP/topicdeep-linux-supply.tar.gz" > "$RUNNER_TEMP/topicdeep-linux-supply.tar.gz.sha256"
+
+      - name: Download Playwright 1.57.0 browser authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          pw_root="$RUNNER_TEMP/topicdeep-playwright"
+          project="$RUNNER_TEMP/topicdeep-playwright-project"
+          mkdir -p "$pw_root" "$project"
+          cd "$project"
+          npm init -y >/dev/null
+          npm install --ignore-scripts --no-audit --no-fund --save-exact @playwright/test@1.57.0
+          PLAYWRIGHT_BROWSERS_PATH="$pw_root" npx playwright install chromium firefox webkit
+          PLAYWRIGHT_BROWSERS_PATH="$pw_root" npx playwright install --dry-run > "$RUNNER_TEMP/PLAYWRIGHT-INSTALL-RECEIPT.txt"
+          find "$pw_root" -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/PLAYWRIGHT-SHA256SUMS"
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf "$RUNNER_TEMP/topicdeep-playwright-1.57.0-linux-x64.tar" \
+            -C "$RUNNER_TEMP" \
+            PLAYWRIGHT-INSTALL-RECEIPT.txt PLAYWRIGHT-SHA256SUMS \
+            "$(basename "$pw_root")"
+          sha256sum "$RUNNER_TEMP/topicdeep-playwright-1.57.0-linux-x64.tar" \
+            > "$RUNNER_TEMP/topicdeep-playwright-1.57.0-linux-x64.tar.sha256"
+
+      - name: Upload Linux toolchain and native package supply
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: topicdeep-linux-supply
+          path: |
+            ${{ runner.temp }}/topicdeep-linux-supply.tar.gz
+            ${{ runner.temp }}/topicdeep-linux-supply.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload Playwright browser supply
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: topicdeep-playwright-1.57.0-linux-x64
+          path: |
+            ${{ runner.temp }}/topicdeep-playwright-1.57.0-linux-x64.tar
+            ${{ runner.temp }}/topicdeep-playwright-1.57.0-linux-x64.tar.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Publish run receipt to temporary branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          supply_sha="$(awk '{print $1}' "$RUNNER_TEMP/topicdeep-linux-supply.tar.gz.sha256")"
+          browser_sha="$(awk '{print $1}' "$RUNNER_TEMP/topicdeep-playwright-1.57.0-linux-x64.tar.sha256")"
+          node -e 'const fs=require("fs"); fs.writeFileSync("topicdeep-linux-supply-run.json", JSON.stringify({status:"PASS",runId:process.env.GITHUB_RUN_ID,runAttempt:process.env.GITHUB_RUN_ATTEMPT,supplyArtifact:"topicdeep-linux-supply",playwrightArtifact:"topicdeep-playwright-1.57.0-linux-x64",supplySha256:process.argv[1],playwrightSha256:process.argv[2]},null,2)+"\n")' "$supply_sha" "$browser_sha"
+          git config user.name 'TopicDeep Linux Supply'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add topicdeep-linux-supply-run.json
+          git commit -m 'Record TopicDeep Linux supply run'
+          git push origin "HEAD:${GITHUB_REF}"
